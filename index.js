@@ -50,6 +50,11 @@ app.use((req, res, next) => {
     logger.debug(`${req.method} ${req.path}`);
     next();
 });
+// This server exists to sync a private mailbox, not to be discovered.
+app.use((req, res, next) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    next();
+});
 app.use((req, res, next) => {
     const path = req.path;
     if(path.startsWith('/api') || path.startsWith('/metadata') || path.startsWith('/deltas')) {
@@ -81,6 +86,9 @@ app.use((req, res, next) => {
 // Public
 app.get('/', (req, res) => {
     res.sendFile(path.resolve('./static/index.html'));
+});
+app.get('/robots.txt', (req, res) => {
+    res.sendFile(path.resolve('./static/robots.txt'));
 });
 app.get(/\/open\/.+/, (req, res) => {
     res.sendFile(path.resolve('./static/blank.gif'));
