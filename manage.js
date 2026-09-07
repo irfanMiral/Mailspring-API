@@ -62,6 +62,10 @@ if(!fs.existsSync('./data')) {
     fs.mkdirSync('./data');
 }
 const db = sqlite3('./data/mailspring-api.db');
+// Match index.js: WAL + busy_timeout so this CLI can write alongside a running server
+// instead of failing immediately with "database is locked".
+db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
 db.transaction(() => {
     db.exec('CREATE TABLE IF NOT EXISTS identities(id VARCHAR PRIMARY KEY, firstName VARCHAR, lastName VARCHAR, emailAddress VARCHAR, passwordHash VARCHAR, createdAt VARCHAR, stripePlan VARCHAR, stripePlanEffective VARCHAR, stripeCustomerId VARCHAR, stripePeriodEnd VARCHAR, featureUsage VARCHAR);');
     db.exec('CREATE TABLE IF NOT EXISTS sessions(token VARCHAR PRIMARY KEY, identityId VARCHAR, lastLogin INTEGER);');

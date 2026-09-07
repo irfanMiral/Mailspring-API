@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Account - Mailspring API</title>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f6f6f8;
+            margin: 0;
+            color: #2b2b2b;
+        }
+        a { color: #3897fc; }
+        header {
+            background-color: #ffffff;
+            border-bottom: 1px solid #e2e2e2;
+            padding: 18px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header .title { font-size: 18px; font-weight: 600; }
+        header .signout {
+            font-size: 13px;
+            color: #767676;
+            cursor: pointer;
+            background: none;
+            border: none;
+        }
+        main {
+            max-width: 600px;
+            margin: 32px auto;
+            padding: 0 16px;
+        }
+        .card {
+            background-color: #ffffff;
+            border: 1px solid #e2e2e2;
+            border-radius: 6px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .card h2 {
+            font-size: 15px;
+            margin: 0 0 16px 0;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: #767676;
+        }
+        .identity-name { font-size: 20px; font-weight: 600; }
+        .identity-email { color: #767676; margin-top: 2px; }
+        label {
+            display: block;
+            font-size: 13px;
+            color: #525252;
+            margin-bottom: 4px;
+        }
+        input[type=password] {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px;
+            margin-bottom: 14px;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button[type=submit], .btn {
+            background-color: #3897fc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 9px 16px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        button[type=submit]:hover, .btn:hover { background-color: #238cfc; }
+        button:disabled { background-color: #a7cffc; cursor: default; }
+        .message {
+            font-size: 13px;
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 14px;
+        }
+        .message:empty { display: none; }
+        .message.error { background-color: #fff1f0; border: 1px solid #e4584c; color: #e4584c; }
+        .message.success { background-color: #f0fff2; border: 1px solid #48c774; color: #2c8a4b; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        table th, table td { text-align: left; padding: 8px 4px; border-bottom: 1px solid #eeeeee; }
+        table th { color: #767676; font-weight: 500; font-size: 12px; text-transform: uppercase; }
+        .session-current { color: #2c8a4b; font-size: 12px; font-weight: 600; }
+        .session-revoke {
+            background: none;
+            border: none;
+            color: #e4584c;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 0;
+        }
+        .footnote { font-size: 12px; color: #999999; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="title">Mailspring API</div>
+        <form action="/dashboard/logout" method="POST">
+            <button type="submit" class="signout">Sign out</button>
+        </form>
+    </header>
+
+    <main>
+        <div class="card">
+            <h2>Account</h2>
+            <div class="identity-name"><%= identity.firstName %> <%= identity.lastName %></div>
+            <div class="identity-email"><%= identity.emailAddress %></div>
+        </div>
+
+        <div class="card">
+            <h2>Change password</h2>
+            <div id="pwMessage" class="message"></div>
+            <form id="pwForm">
+                <label for="currentPassword">Current password</label>
+                <input type="password" id="currentPassword" name="currentPassword" required>
+                <label for="newPassword">New password</label>
+                <input type="password" id="newPassword" name="newPassword" required minlength="8">
+                <button type="submit" id="pwSubmit" disabled>Update password</button>
+            </form>
+            <div class="footnote">Changing your password signs out every other session below.</div>
+        </div>
+
+        <div class="card">
+            <h2>Active sessions</h2>
+            <table>
+                <thead>
+                    <tr><th>Last active</th><th></th><th></th></tr>
+                </thead>
+                <tbody id="sessionRows">
+                    <% sessions.forEach(function(session) { %>
+                    <tr data-token="<%= session.token %>">
+                        <td><%= new Date(session.lastLogin * 1000).toLocaleString() %></td>
+                        <td><% if (session.token === currentToken) { %><span class="session-current">This browser</span><% } %></td>
+                        <td style="text-align: right;">
+                            <button class="session-revoke" data-token="<%= session.token %>">
+                                <%= session.token === currentToken ? 'Sign out' : 'Revoke' %>
+                            </button>
+                        </td>
+                    </tr>
+                    <% }); %>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="footnote">
+            This is a self-hosted Mailspring API server, not affiliated with Mailspring.
+            More users can be added via the CLI - see the
+            <a href="https://github.com/irfanMiral/Mailspring-API#createmanage-a-user-account">documentation</a>.
+        </div>
+    </main>
+
+    <script>
+        const pwForm = document.getElementById('pwForm');
+        const pwMessage = document.getElementById('pwMessage');
+        const pwSubmit = document.getElementById('pwSubmit');
+
+        function setMessage(el, text, isError) {
+            el.textContent = text;
+            el.className = 'message ' + (isError ? 'error' : 'success');
+        }
+
+        pwForm.addEventListener('keyup', () => {
+            pwSubmit.disabled = !pwForm.checkValidity();
+        });
+
+        pwForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = new FormData(pwForm);
+
+            try {
+                const res = await fetch('/dashboard/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        currentPassword: data.get('currentPassword'),
+                        newPassword: data.get('newPassword')
+                    })
+                });
+                const json = await res.json();
+
+                if(!res.ok) {
+                    setMessage(pwMessage, json.message || 'Something went wrong.', true);
+                    return;
+                }
+
+                setMessage(pwMessage, 'Password updated.', false);
+                pwForm.reset();
+                pwSubmit.disabled = true;
+                setTimeout(() => location.reload(), 1000);
+            } catch(err) {
+                setMessage(pwMessage, 'Something went wrong.', true);
+            }
+        });
+
+        document.getElementById('sessionRows').addEventListener('click', async (e) => {
+            const button = e.target.closest('.session-revoke');
+            if(!button) return;
+            const token = button.dataset.token;
+
+            try {
+                const res = await fetch('/dashboard/sessions/revoke', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token })
+                });
+                const json = await res.json();
+
+                if(json.signedOutCurrentSession) {
+                    location.reload();
+                    return;
+                }
+
+                button.closest('tr').remove();
+            } catch(err) {
+                // Leave the row in place; the user can retry.
+            }
+        });
+    </script>
+</body>
+</html>

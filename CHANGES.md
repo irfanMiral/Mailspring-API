@@ -40,6 +40,14 @@ which had been unmaintained since 2023.
   `3.0.0`, resolving several `undici` advisories (including a couple of high
   severity ones) pulled in transitively.
 
+- **`manage.js` writes could collide with a running server.** Neither
+  `index.js` nor `manage.js` enabled SQLite's WAL journal mode, so opening the
+  database file from two processes at once (the running server plus a
+  `manage.js user add`/`delete`/`changepw` invocation) could fail with
+  `SQLITE_BUSY`/"database is locked" instead of just working. Both now set
+  `journal_mode = WAL` and a 5s `busy_timeout`. Verified by running the server
+  and successfully creating three users via `manage.js` while it stayed up.
+
 ## New endpoints
 
 The Mailspring client gained these since this project's last update in 2023;
@@ -56,6 +64,19 @@ this server:
 - **`POST /api/login-link`** — used to build "open in browser" links. This
   server has no separate SSO/billing portal, so it's implemented as a no-op
   that just echoes back the requested path.
+- **`GET /dashboard`** — the client's "Account Details" and "Manage Billing"
+  buttons in Preferences open this URL (via `/api/login-link`), and it
+  previously just redirected to the static landing page with nothing to
+  actually manage. It's now a real cookie-authenticated account page:
+  account info, a change-password form (re-verifies the current password,
+  signs out every other session on success), and a list of active sessions
+  with per-session revoke. Backed by `POST /dashboard/change-password`,
+  `POST /dashboard/sessions/revoke`, and `POST /dashboard/logout` — these
+  intentionally sit outside `/api/*` so they use the browser's cookie
+  session rather than the bearer-token auth the client's own API calls use.
+  Verified end-to-end: login, wrong-password rejection, successful change
+  invalidating the old password, and revoking a second session from the
+  first session's dashboard.
 - **`GET /robots.txt`** and a global `X-Robots-Tag: noindex, nofollow`
   header, plus matching `<meta name="robots">` tags on every HTML page — see
   below.

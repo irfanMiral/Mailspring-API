@@ -49,6 +49,12 @@ if(!fs.existsSync('./data')) {
     fs.mkdirSync('./data');
 }
 const db = new Database('./data/mailspring-api.db');
+// WAL lets readers/writers work concurrently instead of locking the whole file, and
+// busy_timeout makes a writer that does show up (e.g. manage.js) retry for a bit
+// instead of failing immediately with SQLITE_BUSY - both matter here because manage.js
+// opens its own separate connection to the same file while the server is running.
+db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
 db.transaction(() => {
     db.exec('CREATE TABLE IF NOT EXISTS identities(id VARCHAR PRIMARY KEY, firstName VARCHAR, lastName VARCHAR, emailAddress VARCHAR, passwordHash VARCHAR, createdAt VARCHAR, stripePlan VARCHAR, stripePlanEffective VARCHAR, stripeCustomerId VARCHAR, stripePeriodEnd VARCHAR, featureUsage VARCHAR);');
     db.exec('CREATE TABLE IF NOT EXISTS sessions(token VARCHAR PRIMARY KEY, identityId VARCHAR, lastLogin INTEGER);');
@@ -221,7 +227,86 @@ app.get(/\/thread\/.*\/.*/, (req, res) => {
 
 // Accout related
 app.get('/dashboard', (req, res) => {
-    res.redirect('/');
+    // This is what the Mailspring client's "Account Details" / "Manage Billing"
+    // buttons open (via /api/login-link), so it needs to be a real account page,
+    // not just a redirect to the static landing page.
+    const identity = verifySession(req.cookies.session);
+    if(!identity) {
+        res.sendFile(path.resolve('./static/login.html'));
+        return;
+    }
+
+    const stmt = db.prepare('SELECT token, lastLogin FROM sessions WHERE identityId = ? ORDER BY lastLogin DESC;');
+    const sessionRows = stmt.all(identity.id);
+
+    res.render(path.resolve('./static/dashboard.ejs'), {
+        identity: identity,
+        sessions: sessionRows,
+        currentToken: identity.token
+    });
+});
+app.post('/dashboard/change-password', (req, res) => {
+    const identity = verifySession(req.cookies.session);
+    if(!identity) {
+        res.status(401).json({statusCode: 401, error: 'Unauthorized', message: 'Not logged in.'});
+        return;
+    }
+    if(!req.body || !req.body.currentPassword || !req.body.newPassword) {
+        res.status(400).json({statusCode: 400, error: 'Bad Request', message: 'Current and new password are required.'});
+        return;
+    }
+    if(req.body.newPassword.length < 8) {
+        res.status(400).json({statusCode: 400, error: 'Bad Request', message: 'New password must be at least 8 characters.'});
+        return;
+    }
+
+    const stmt = db.prepare('SELECT passwordHash FROM identities WHERE id = ?;');
+    const row = stmt.get(identity.id);
+    const [correctHash, salt] = row.passwordHash.split('.');
+    const currentHash = crypto.pbkdf2Sync(req.body.currentPassword, salt, 1000, 64, 'sha512').toString('hex');
+
+    if(currentHash !== correctHash) {
+        res.status(401).json({statusCode: 401, error: 'Unauthorized', message: 'Current password is incorrect.'});
+        return;
+    }
+
+    db.transaction(() => {
+        let stmt = db.prepare('UPDATE identities SET passwordHash = ? WHERE id = ?;');
+        stmt.run(hashPassword(req.body.newPassword), identity.id);
+
+        // Sign out everywhere except this browser session, same as manage.js changepw.
+        stmt = db.prepare('DELETE FROM sessions WHERE identityId = ? AND token != ?;');
+        stmt.run(identity.id, identity.token);
+    })();
+
+    logger.info(`User "${identity.firstName} ${identity.lastName}" changed their password via the dashboard.`);
+    res.json({success: true});
+});
+app.post('/dashboard/sessions/revoke', (req, res) => {
+    const identity = verifySession(req.cookies.session);
+    if(!identity) {
+        res.status(401).json({statusCode: 401, error: 'Unauthorized', message: 'Not logged in.'});
+        return;
+    }
+    if(!req.body || !req.body.token) {
+        res.status(400).json({statusCode: 400, error: 'Bad Request', message: 'Key "token" is required.'});
+        return;
+    }
+
+    // Scoped to this identity so one user can't revoke another's session by guessing a token.
+    const stmt = db.prepare('DELETE FROM sessions WHERE token = ? AND identityId = ?;');
+    stmt.run(req.body.token, identity.id);
+
+    res.json({success: true, signedOutCurrentSession: req.body.token === identity.token});
+});
+app.post('/dashboard/logout', (req, res) => {
+    const identity = verifySession(req.cookies.session);
+    if(identity) {
+        const stmt = db.prepare('DELETE FROM sessions WHERE token = ?;');
+        stmt.run(identity.token);
+    }
+    res.clearCookie('session');
+    res.redirect('/dashboard');
 });
 app.get('/onboarding', (req, res) => {
     const identity = verifySession(req.cookies.session);
@@ -567,6 +652,11 @@ function emitEvent(eventName, object) {
 function fetchIdentity(identityId) {
     const stmt = db.prepare('SELECT * FROM identities WHERE id = ?;');
     return stmt.get(identityId);
+}
+function hashPassword(password) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+    return hash+'.'+salt;
 }
 function loginUser(email, password) {
     const stmt = db.prepare('SELECT * FROM identities WHERE emailAddress = ?;');

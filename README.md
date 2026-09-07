@@ -19,6 +19,7 @@ This is a fork of [1RandomDev/mailspring-api](https://github.com/1RandomDev/mail
 - :heavy_check_mark: Mail Templates
 - :heavy_check_mark: Grammar check (proxies to a [LanguageTool](https://languagetool.org/)-compatible server)
 - :heavy_check_mark: CalDAV/CardDAV host discovery (for the client's own calendar/contacts sync, which talks to your mail provider directly)
+- :heavy_check_mark: Account dashboard (`/dashboard`) - change password, view/revoke active sessions
 - :x: Rich contact profile
 - :x: Company overviews
 - :heavy_check_mark: Mailbox insights (+ sharing)
