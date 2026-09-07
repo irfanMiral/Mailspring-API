@@ -10,6 +10,23 @@ import Database from 'better-sqlite3';
 import translate from '@iamtraction/google-translate';
 import fs from 'fs';
 import path from 'path';
+import dns from 'dns';
+import { promisify } from 'util';
+
+const resolveSrv = promisify(dns.resolveSrv);
+
+// Looks up an RFC 6764 DAV discovery SRV record (e.g. "_caldavs._tcp.example.com")
+// and returns the highest-priority target's host name, or null if none exists.
+async function resolveDavSrvHost(srvName) {
+    try {
+        const records = await resolveSrv(srvName);
+        if(!records.length) return null;
+        records.sort((a, b) => a.priority - b.priority || b.weight - a.weight);
+        return records[0].name;
+    } catch(err) {
+        return null;
+    }
+}
 
 dotenv.config();
 const API_PORT = process.env.API_PORT || 5101;
@@ -240,13 +257,20 @@ app.post('/login', (req, res) => {
 
 // API
 app.post('/api/resolve-dav-hosts', async (req, res) => {
-    // Forward to Mailspring API
-    try {
-        const hosts = await axios.post('https://id.getmailspring.com/api/resolve-dav-hosts', req.body);
-        res.json(hosts.data);
-    } catch(err) {
-        res.status(err.response.status).json(err.response.data);
+    // Locates candidate CalDAV/CardDAV hosts for the account's domain via RFC 6764
+    // DNS SRV discovery. The client verifies/walks each host itself (.well-known
+    // redirect + PROPFIND chain), so we only need to hand back a host name, not a
+    // fully resolved service URL.
+    const domain = req.body && req.body.domain;
+    if(!domain) {
+        res.status(400).json({statusCode: 400, error: 'Bad Request', message: 'Key "domain" is required'});
+        return;
     }
+
+    const result = {};
+    result.caldavHost = await resolveDavSrvHost('_caldavs._tcp.' + domain) || req.body.imapHost || domain;
+    result.carddavHost = await resolveDavSrvHost('_carddavs._tcp.' + domain) || req.body.imapHost || domain;
+    res.json(result);
 });
 app.post('/api/feature_usage_event', (req, res) => {
     // Don't do anything, unlimitted use of features
@@ -348,6 +372,38 @@ app.post('/api/translate', async (req, res) => {
         logger.error('Message translation failed: '+err);
         res.status(500).json({statusCode: 500, error: 'Internal Server Error', message: 'Translation service returned an unexpected error.'});
     }
+});
+app.post('/api/grammar/check', async (req, res) => {
+    if(!req.body || !req.body.text) {
+        res.status(400).json({statusCode: 400, error: 'Bad Request', message: 'Key "text" is required'});
+        return;
+    }
+
+    // Proxies to a LanguageTool-compatible server (https://languagetool.org). Defaults to
+    // the public LanguageTool API, which is rate-limited; set LANGUAGETOOL_URL to point at
+    // a self-hosted instance (e.g. the erikvl87/languagetool Docker image) to avoid that.
+    const languageToolUrl = process.env.LANGUAGETOOL_URL || 'https://api.languagetool.org';
+    try {
+        const params = new URLSearchParams();
+        params.append('text', req.body.text);
+        params.append('language', req.body.language || 'auto');
+
+        const result = await axios.post(languageToolUrl + '/v2/check', params);
+        res.json(result.data);
+    } catch(err) {
+        if(err.response && err.response.status === 429) {
+            res.status(429).json({statusCode: 429, error: 'Too Many Requests', message: 'Grammar check rate limit reached, please try again shortly.'});
+            return;
+        }
+        logger.error('Grammar check failed: '+err);
+        res.status(502).json({statusCode: 502, error: 'Bad Gateway', message: 'Grammar check service is temporarily unavailable.'});
+    }
+});
+app.post('/api/login-link', upload.none(), (req, res) => {
+    // This server has no separate SSO/billing portal, so there's nothing to sign a
+    // login link for - just hand the client back the path it asked to open.
+    const nextPath = (req.body && req.body.next_path) || '/';
+    res.json({path: nextPath});
 });
 
 // Metadata

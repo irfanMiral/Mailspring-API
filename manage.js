@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-const yargs = require('yargs/yargs');
-const { hideBin } = require('yargs/helpers');
-const readline = require("readline-sync");
-const sqlite3 = require('better-sqlite3');
-const crypto = require('crypto');
+import yargs from 'yargs/yargs';
+import { hideBin } from 'yargs/helpers';
+import readline from 'readline-sync';
+import sqlite3 from 'better-sqlite3';
+import crypto from 'crypto';
+import fs from 'fs';
 
 const argv = yargs(hideBin(process.argv))
     .detectLocale(false)
@@ -57,6 +58,9 @@ const argv = yargs(hideBin(process.argv))
     })
     .argv;
 
+if(!fs.existsSync('./data')) {
+    fs.mkdirSync('./data');
+}
 const db = sqlite3('./data/mailspring-api.db');
 db.transaction(() => {
     db.exec('CREATE TABLE IF NOT EXISTS identities(id VARCHAR PRIMARY KEY, firstName VARCHAR, lastName VARCHAR, emailAddress VARCHAR, passwordHash VARCHAR, createdAt VARCHAR, stripePlan VARCHAR, stripePlanEffective VARCHAR, stripeCustomerId VARCHAR, stripePeriodEnd VARCHAR, featureUsage VARCHAR);');
@@ -184,7 +188,7 @@ function manageUsers() {
                 stmt = db.prepare('DELETE FROM shared_pages WHERE identityId = ?;');
                 stmt.run(identity.id);
 
-                stmt = db.prepare('DELETE FROM shares_assets WHERE identityId = ?;');
+                stmt = db.prepare('DELETE FROM shared_assets WHERE identityId = ?;');
                 stmt.run(identity.id);
 
                 stmt = db.prepare('DELETE FROM sessions WHERE identityId = ?;');
