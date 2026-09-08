@@ -113,6 +113,20 @@ app.get('/', (req, res) => {
 app.get('/robots.txt', (req, res) => {
     res.sendFile(path.resolve('./static/robots.txt'));
 });
+app.get(/\/signature-assets\/[a-z0-9_-]+\.(gif|png)$/i, (req, res) => {
+    // Social icons for the composer's default signature templates. Self-hosted here
+    // instead of hotlinking getmailspring.com, both to drop that dependency and so we
+    // can keep them current (e.g. Twitter -> X) independently of upstream.
+    const filename = path.basename(req.path);
+    const filePath = path.resolve('./static/signature-assets', filename);
+    if(!filePath.startsWith(path.resolve('./static/signature-assets'))) {
+        res.status(400).end();
+        return;
+    }
+    res.sendFile(filePath, err => {
+        if(err) res.status(404).end();
+    });
+});
 app.get(/\/open\/.+/, (req, res) => {
     res.sendFile(path.resolve('./static/blank.gif'));
 

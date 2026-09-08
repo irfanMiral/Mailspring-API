@@ -80,6 +80,13 @@ this server:
 - **`GET /robots.txt`** and a global `X-Robots-Tag: noindex, nofollow`
   header, plus matching `<meta name="robots">` tags on every HTML page — see
   below.
+- **`GET /signature-assets/:file`** — the composer's default signature
+  templates (`app/internal_packages/composer-signature` in the client)
+  embedded 7 social icons hotlinked from `www.getmailspring.com`, including
+  the old Twitter bird logo, with no way to update or self-host them. Now
+  served from here instead (paired with a client-side change to point at
+  `serverUrls.share` instead of the hardcoded getmailspring.com URL), with a
+  new X-branded icon replacing Twitter's.
 
 ## Not implemented (by design)
 
