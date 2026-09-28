@@ -127,17 +127,11 @@ app.get(/\/signature-assets\/[a-z0-9_-]+\.(gif|png)$/i, (req, res) => {
         if(err) res.status(404).end();
     });
 });
-app.get(/\/open\/.+/, (req, res) => {
-    res.sendFile(path.resolve('./static/blank.gif'));
-
-    const messageId = req.path.match(/\/open\/(.+)/)[1];
-    const accountId = req.query.me;
-    const recipient = Buffer.from(req.query.recipient, 'base64').toString();
-    
+function recordOpenTrackingHit(messageId, accountId, recipient) {
     db.transaction(() => {
         let stmt = db.prepare('SELECT * FROM objects WHERE object = \'metadata\' AND plugin_id = \'open-tracking\' AND aid = ? AND json_extract(value, \'$.uid\') = ?;');
         let object = stmt.get(accountId, messageId);
-        
+
         if(object) {
             object.v++;
             object.value = JSON.parse(object.value);
@@ -146,13 +140,43 @@ app.get(/\/open\/.+/, (req, res) => {
                 timestamp: Date.now()/1000,
                 recipient: recipient
             });
-    
+
             stmt = db.prepare('UPDATE objects SET v = ?, value = ? WHERE id = ?;');
             stmt.run(object.v, JSON.stringify(object.value), object.id);
-    
+
             emitEvent('modify', object);
         }
     })();
+}
+
+// Legacy pixel format: /open/<messageId>?me=<accountId>&recipient=<base64>.
+// Kept for messages already sent by older client builds.
+app.get(/\/open\/.+/, (req, res) => {
+    res.sendFile(path.resolve('./static/blank.gif'));
+
+    const messageId = req.path.match(/\/open\/(.+)/)[1];
+    const accountId = req.query.me;
+    const recipient = req.query.recipient ? Buffer.from(req.query.recipient, 'base64').toString() : '';
+
+    recordOpenTrackingHit(messageId, accountId, recipient);
+});
+// Current pixel format (client commit f20e1284e, "read receipt tracking pixel
+// best practices"): a single opaque base64url token instead of query-string
+// params, to avoid being trivially identifiable to pixel blockers. The token
+// decodes to {messageId, accountId, recipient?} - see the client's
+// encodeOpenTrackingToken() in open-tracking-composer-extension.ts.
+app.get(/\/o\/([A-Za-z0-9_-]+)\.png$/, (req, res) => {
+    res.sendFile(path.resolve('./static/blank.png'));
+
+    try {
+        const token = req.params[0].replace(/-/g, '+').replace(/_/g, '/');
+        const padded = token + '='.repeat((4 - (token.length % 4)) % 4);
+        const { messageId, accountId, recipient } = JSON.parse(Buffer.from(padded, 'base64').toString());
+
+        recordOpenTrackingHit(messageId, accountId, recipient || '');
+    } catch(err) {
+        logger.warn(`Failed to decode open-tracking token: ${err.message}`);
+    }
 });
 app.get(/\/link\/.+\/.+/, (req, res) => {
     const redirectUrl = req.query.redirect;

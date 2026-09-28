@@ -6,6 +6,20 @@ which had been unmaintained since 2023.
 
 ## Bug fixes
 
+- **Read-receipt (open-tracking) stats stopped recording.** Upstream client
+  commit `f20e1284e` ("Incorporate a few new best practices to improve
+  success rate of read receipt tracking pixels", #2613) replaced the open
+  tracking pixel's URL format — from `/open/<messageId>?me=<accountId>&recipient=<base64>`
+  to an opaque `/o/<base64url-token>.png`, where the token is a base64url-encoded
+  JSON payload (`{messageId, accountId, recipient?}`), to avoid the pixel URL
+  being trivially fingerprinted by blockers. This server only implemented the
+  old route, so every open ping from a current client 404'd silently and read
+  receipts stopped updating. Added a `/o/:token.png` route that decodes the
+  token and records the hit the same way the old route did (now factored into
+  a shared `recordOpenTrackingHit()`), serving a 1x1 transparent PNG. The old
+  `/open/` route is kept as-is for messages already sent by older client
+  builds. Link-click tracking (`/link/:messageId/:linkId`) was unaffected —
+  its URL format didn't change upstream.
 - **`manage.js` (the user-management CLI) never ran.** `package.json` declares
   `"type": "module"`, but `manage.js` used CommonJS `require()`. Every
   invocation — including `./manage.js user add`, the very first command the
